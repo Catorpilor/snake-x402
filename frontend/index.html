@@ -324,6 +324,33 @@
             margin-bottom: 0.5rem;
         }
         
+        .pause-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            color: #fff;
+            border-radius: 8px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        
+        .pause-overlay.show {
+            opacity: 1;
+        }
+        
+        .canvas-container {
+            position: relative;
+            display: inline-block;
+        }
+        
         @media (max-width: 768px) {
             .game-container {
                 flex-direction: column;
@@ -369,7 +396,10 @@
             
             <div class="direction-indicator">Direction: <span id="currentDirection">→</span></div>
             
-            <canvas id="gameCanvas" width="400" height="400"></canvas>
+            <div class="canvas-container">
+                <canvas id="gameCanvas" width="400" height="400"></canvas>
+                <div class="pause-overlay" id="pauseOverlay">⏸️ PAUSED</div>
+            </div>
             
             <div class="controls">
                 <div class="controls-row">
@@ -438,6 +468,7 @@
         let gameLoopInterval = null;
         let tickSpeed = 200;
         let isProcessingTurn = false;
+        let isPaused = false;
         let pendingDirection = null;
         let provider = null;
         let signer = null;
@@ -457,6 +488,42 @@
         document.addEventListener('DOMContentLoaded', () => {
             checkExistingConnection();
             loadLeaderboard();
+        });
+        
+        function setPaused(paused, reason = '') {
+            isPaused = paused;
+            const overlay = document.getElementById('pauseOverlay');
+            if (paused && gameLoopInterval && !gameState?.gameOver) {
+                overlay.textContent = reason || '⏸️ PAUSED';
+                overlay.classList.add('show');
+            } else {
+                overlay.classList.remove('show');
+            }
+        }
+        
+        // Pause when window loses focus
+        window.addEventListener('blur', () => {
+            if (gameLoopInterval && !gameState?.gameOver) {
+                setPaused(true, '⏸️ PAUSED');
+            }
+        });
+        
+        // Resume when window gains focus (unless processing payment)
+        window.addEventListener('focus', () => {
+            if (isPaused && !isProcessingTurn && !gameState?.gameOver) {
+                setPaused(false);
+            }
+        });
+        
+        // Also handle visibility change (tab switch)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                if (gameLoopInterval && !gameState?.gameOver) {
+                    setPaused(true, '⏸️ PAUSED');
+                }
+            } else if (!isProcessingTurn && !gameState?.gameOver) {
+                setPaused(false);
+            }
         });
         
         // Keyboard controls
@@ -630,6 +697,11 @@
                 return;
             }
             
+            // Skip tick if paused (payment popup, window unfocused, etc.)
+            if (isPaused) {
+                return;
+            }
+            
             try {
                 const response = await fetch(`${API_URL}/v1/game/tick?gameId=${gameId}`, {
                     method: 'POST',
@@ -664,6 +736,7 @@
             }
             
             isProcessingTurn = true;
+            setPaused(true, '💰 Signing payment...');
             highlightButton(direction);
             
             try {
@@ -717,6 +790,7 @@
                 // Don't show alert for every error, just log it
             } finally {
                 isProcessingTurn = false;
+                setPaused(false);
                 clearButtonHighlights();
             }
         }
