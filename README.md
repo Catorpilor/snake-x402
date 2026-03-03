@@ -1,15 +1,34 @@
 # 🐍 Snake x402
 
-A playable browser Snake game where every move costs $0.001 USDC via x402 micropayments.
+A playable browser Snake game where direction changes cost $0.001 USDC via [x402](https://x402.org) micropayments.
+
+## 🎮 Live Demo
+
+**[https://demos.zeh.app/snake](https://demos.zeh.app/snake)**
+
+Connect your wallet (Base network) and play! The snake moves automatically — you only pay when changing direction.
 
 ## Features
 
-- Classic Snake gameplay
-- x402 micropayments ($0.001 per move)
-- Real-time payment verification
+- Classic Snake gameplay with auto-movement
+- Pay-per-turn: $0.001 USDC to change direction (movement is free!)
+- x402 micropayments on Base network
+- Real-time payment verification via facilitator
 - In-game leaderboard
+- Adjustable game speed
+- Wallet connection (MetaMask, etc.)
 - Pure HTML/CSS/JS frontend
 - TypeScript backend with Hono
+
+## How It Works
+
+1. **Start a game** — Snake spawns moving right
+2. **Auto-movement** — Snake moves automatically in current direction (FREE)
+3. **Change direction** — Press arrow keys to turn ($0.001 USDC each)
+4. **Eat food** — Grow longer, score points
+5. **Game over** — Hit wall or yourself
+
+**Play smart = fewer turns = less spent!**
 
 ## Quick Start
 
@@ -36,11 +55,14 @@ bun run dev
 
 ```bash
 # Build and run
-PAYMENT_ADDRESS=0xYourWalletAddress docker-compose up -d
-
-# Or build manually
 docker build -t snake-x402 .
-docker run -p 3402:3000 -e PAYMENT_ADDRESS=0xYourWallet snake-x402
+docker run -d -p 3402:3402 \
+  -e PAYMENT_ADDRESS=0xYourWallet \
+  -e PORT=3402 \
+  snake-x402
+
+# Or with docker-compose
+docker-compose up -d
 ```
 
 ## API Endpoints
@@ -49,7 +71,8 @@ docker run -p 3402:3000 -e PAYMENT_ADDRESS=0xYourWallet snake-x402
 |----------|--------|-------|-------------|
 | `/v1/game/new` | POST | Free | Start a new game |
 | `/v1/game/:id` | GET | Free | Get current game state |
-| `/v1/game/move?gameId=:id` | POST | $0.001 | Make a move (x402 payment required) |
+| `/v1/game/tick?gameId=:id` | POST | Free | Move snake forward (auto-movement) |
+| `/v1/game/turn?gameId=:id` | POST | **$0.001** | Change direction (x402 payment required) |
 | `/v1/leaderboard` | GET | Free | Top 10 scores |
 | `/health` | GET | Free | Health check |
 
@@ -62,24 +85,29 @@ docker run -p 3402:3000 -e PAYMENT_ADDRESS=0xYourWallet snake-x402
   "board": { "width": 20, "height": 20 },
   "snake": [{ "x": 10, "y": 10 }],
   "food": { "x": 5, "y": 5 },
+  "direction": "RIGHT",
   "score": 0,
-  "moveCount": 0,
-  "totalSpent": "0.000000",
-  "gameOver": false,
-  "paymentVerified": true
+  "moveCount": 5,
+  "directionChanges": 2,
+  "totalSpent": "0.002000",
+  "gameOver": false
 }
 ```
 
-## Move Request
+## x402 Payment Flow
+
+1. Client calls `/v1/game/turn` without payment
+2. Server returns `402 Payment Required` with `PAYMENT-REQUIRED` header
+3. Client's wallet signs the payment authorization
+4. Client retries with `PAYMENT-SIGNATURE` header
+5. Server verifies via facilitator and processes the turn
 
 ```bash
-curl -X POST "http://localhost:3000/v1/game/move?gameId=YOUR_GAME_ID" \
+# Example: Turn request (will return 402 first)
+curl -X POST "http://localhost:3402/v1/game/turn?gameId=YOUR_GAME_ID" \
   -H "Content-Type: application/json" \
-  -H "X-Payment-Response: <x402-payment-header>" \
   -d '{"direction": "UP"}'
 ```
-
-Directions: `UP`, `DOWN`, `LEFT`, `RIGHT`
 
 ## Stack
 
@@ -87,7 +115,7 @@ Directions: `UP`, `DOWN`, `LEFT`, `RIGHT`
 - **Framework:** Hono
 - **Payments:** x402 (@x402/hono, @x402/evm)
 - **Validation:** Zod
-- **Frontend:** Pure HTML/CSS/JS
+- **Frontend:** Vanilla HTML/CSS/JS + ethers.js
 
 ## Environment Variables
 
@@ -109,14 +137,13 @@ bun test --coverage
 ```
 
 Tests cover:
-- Game creation
-- Snake movement (all directions)
-- Wall collision detection
-- Self collision detection
-- Food consumption and growth
-- Score tracking
-- Spending calculation
-- Leaderboard sorting
+- Game creation and state
+- Auto-movement (tick)
+- Direction changes (turn)
+- Wall & self collision
+- Food consumption
+- Score & spending tracking
+- Leaderboard
 
 ## License
 
