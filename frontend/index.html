@@ -461,7 +461,7 @@
         const API_URL = window.API_URL || basePath;
         const CELL_SIZE = 20;
         const BOARD_SIZE = 20;
-        const BASE_CHAIN_ID = 8453;
+        const BASE_CHAIN_ID = 8453; // Base mainnet
         
         let gameId = null;
         let gameState = null;
@@ -640,7 +640,7 @@
             try {
                 await window.ethereum.request({
                     method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: '0x2105' }],
+                    params: [{ chainId: '0x2105' }], // Base mainnet
                 });
             } catch (switchError) {
                 if (switchError.code === 4902) {
@@ -771,8 +771,14 @@
                     });
                     
                     if (!paidResponse.ok) {
-                        const errData = await paidResponse.json().catch(() => ({}));
-                        throw new Error(errData.error || 'Payment failed');
+                        const errText = await paidResponse.text();
+                        console.error('Payment response error:', paidResponse.status, errText);
+                        let errMsg = 'Payment failed';
+                        try {
+                            const errData = JSON.parse(errText);
+                            errMsg = errData.error || errData.invalidReason || errData.message || errMsg;
+                        } catch {}
+                        throw new Error(`${errMsg} (${paidResponse.status})`);
                     }
                     
                     gameState = await paidResponse.json();
@@ -799,11 +805,12 @@
         async function signPayment(paymentReq) {
             const accepted = paymentReq.accepts[0];
             
-            // Create EIP-712 typed data for x402 exact payment
+            // EIP-712 domain must match the USDC contract's domain (EIP-3009)
             const domain = {
-                name: 'x402',
-                version: '1',
+                name: accepted.extra?.name || 'USD Coin',
+                version: accepted.extra?.version || '2',
                 chainId: BASE_CHAIN_ID,
+                verifyingContract: accepted.asset,
             };
             
             const types = {
@@ -817,12 +824,13 @@
                 ],
             };
             
-            const validAfter = 0;
-            const validBefore = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+            const now = Math.floor(Date.now() / 1000);
+            const validAfter = (now - 600).toString(); // 10 min ago for clock skew
+            const validBefore = (now + (accepted.maxTimeoutSeconds || 300)).toString();
             const nonce = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
                 .map(b => b.toString(16).padStart(2, '0')).join('');
             
-            const value = {
+            const authorization = {
                 from: walletAddress,
                 to: accepted.payTo,
                 value: accepted.amount,
@@ -831,25 +839,30 @@
                 nonce,
             };
             
-            const signature = await signer.signTypedData(domain, types, value);
+            // Message for signing needs BigInt values
+            const message = {
+                from: walletAddress,
+                to: accepted.payTo,
+                value: BigInt(accepted.amount),
+                validAfter: BigInt(validAfter),
+                validBefore: BigInt(validBefore),
+                nonce,
+            };
             
-            // Create payment payload
+            console.log('Signing EIP-712:', { domain, types, message });
+            const signature = await signer.signTypedData(domain, types, message);
+            
+            // x402 v2 format - must include 'accepted' for server to match requirements
             const payload = {
                 x402Version: 2,
-                scheme: 'exact',
-                network: accepted.network,
-                accepted: accepted,
+                accepted: accepted, // Server uses this to find matching requirements
                 payload: {
+                    authorization,
                     signature,
-                    from: walletAddress,
-                    to: accepted.payTo,
-                    value: accepted.amount,
-                    validAfter: validAfter.toString(),
-                    validBefore: validBefore.toString(),
-                    nonce,
                 },
             };
             
+            console.log('Payment payload:', payload);
             return btoa(JSON.stringify(payload));
         }
         

@@ -132,14 +132,42 @@ const turnRoutes = {
 };
 
 const evmScheme = new ExactEvmScheme();
+
+// Add logging middleware before payment middleware
+app.use('/v1/game/turn', async (c, next) => {
+  console.log('🔍 Pre-payment check for /v1/game/turn');
+  const paymentSig = c.req.header('PAYMENT-SIGNATURE');
+  if (paymentSig) {
+    try {
+      const decoded = JSON.parse(atob(paymentSig));
+      console.log('  Payment signature present:', JSON.stringify(decoded, null, 2));
+    } catch (e) {
+      console.log('  Payment signature (raw):', paymentSig?.substring(0, 100) + '...');
+    }
+  } else {
+    console.log('  No payment signature');
+  }
+  await next();
+});
+
 app.use(paymentMiddlewareFromConfig(
   turnRoutes, 
   facilitatorClient,
   [{ network: NETWORK, server: evmScheme }]
 ));
 
+// Error handler to capture x402 errors
+app.onError((err, c) => {
+  console.error('❌ Error:', err.message);
+  console.error('  Stack:', err.stack);
+  return c.json({ error: err.message }, 500);
+});
+
 // Turn/change direction (PAID) - only changes direction
 app.post('/v1/game/turn', async (c) => {
+  console.log('📥 Turn request received');
+  console.log('  Headers:', Object.fromEntries(c.req.raw.headers.entries()));
+  
   const gameId = c.req.query('gameId');
   
   if (!gameId) {
@@ -147,6 +175,7 @@ app.post('/v1/game/turn', async (c) => {
   }
   
   const body = await c.req.json();
+  console.log('  Body:', body);
   const result = DirectionSchema.safeParse(body.direction);
   
   if (!result.success) {
@@ -159,6 +188,7 @@ app.post('/v1/game/turn', async (c) => {
     return c.json({ error: 'Game not found or already over' }, 404);
   }
   
+  console.log('✅ Turn successful, direction:', result.data);
   return c.json({
     ...formatGameResponse(game),
     directionChanged: changed,
