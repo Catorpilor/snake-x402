@@ -16,6 +16,7 @@ export interface GameState {
   direction: Direction;
   score: number;
   moveCount: number;
+  directionChanges: number;
   totalSpent: string;
   gameOver: boolean;
   createdAt: number;

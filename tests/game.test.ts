@@ -3,11 +3,14 @@ import {
   createGame,
   getGame,
   moveSnake,
+  tickGame,
+  changeDirection,
   getLeaderboard,
   formatGameResponse,
   clearGames,
   clearLeaderboard,
   isOppositeDirection,
+  isValidDirectionChange,
 } from '../src/game';
 
 describe('Snake Game Logic', () => {
@@ -135,13 +138,24 @@ describe('Snake Game Logic', () => {
       expect(game.moveCount).toBe(2);
     });
 
-    it('should track spending correctly', () => {
+    it('should track spending only on direction changes', () => {
       const game = createGame();
+      // Initial direction is RIGHT
       
+      // Move in same direction - FREE
       moveSnake(game.gameId, 'RIGHT');
+      expect(game.totalSpent).toBe('0.000000');
+      
+      // Change direction to UP - COSTS $0.001
+      moveSnake(game.gameId, 'UP');
       expect(game.totalSpent).toBe('0.001000');
       
-      moveSnake(game.gameId, 'RIGHT');
+      // Move in same direction - FREE  
+      moveSnake(game.gameId, 'UP');
+      expect(game.totalSpent).toBe('0.001000');
+      
+      // Change direction to LEFT - COSTS $0.001
+      moveSnake(game.gameId, 'LEFT');
       expect(game.totalSpent).toBe('0.002000');
     });
 
@@ -331,6 +345,94 @@ describe('Snake Game Logic', () => {
     });
   });
 });
+
+describe('tickGame', () => {
+    it('should move snake in current direction', () => {
+      const game = createGame();
+      const initialHead = { ...game.snake[0] };
+      // Initial direction is RIGHT
+      
+      tickGame(game.gameId);
+      
+      expect(game.snake[0].x).toBe(initialHead.x + 1);
+      expect(game.snake[0].y).toBe(initialHead.y);
+    });
+
+    it('should not cost money', () => {
+      const game = createGame();
+      
+      tickGame(game.gameId);
+      tickGame(game.gameId);
+      tickGame(game.gameId);
+      
+      expect(game.totalSpent).toBe('0.000000');
+    });
+
+    it('should increment move count', () => {
+      const game = createGame();
+      
+      tickGame(game.gameId);
+      expect(game.moveCount).toBe(1);
+      
+      tickGame(game.gameId);
+      expect(game.moveCount).toBe(2);
+    });
+  });
+
+  describe('changeDirection', () => {
+    it('should change direction and cost money', () => {
+      const game = createGame();
+      // Initial direction is RIGHT
+      
+      const { changed } = changeDirection(game.gameId, 'UP');
+      
+      expect(changed).toBe(true);
+      expect(game.direction).toBe('UP');
+      expect(game.totalSpent).toBe('0.001000');
+      expect(game.directionChanges).toBe(1);
+    });
+
+    it('should not change or cost if same direction', () => {
+      const game = createGame();
+      // Initial direction is RIGHT
+      
+      const { changed } = changeDirection(game.gameId, 'RIGHT');
+      
+      expect(changed).toBe(false);
+      expect(game.totalSpent).toBe('0.000000');
+      expect(game.directionChanges).toBe(0);
+    });
+
+    it('should not allow 180-degree turns', () => {
+      const game = createGame();
+      // Add a body segment so 180 turn is not allowed
+      game.snake.push({ x: 9, y: 10 });
+      
+      const { changed } = changeDirection(game.gameId, 'LEFT');
+      
+      expect(changed).toBe(false);
+      expect(game.direction).toBe('RIGHT');
+    });
+  });
+
+  describe('isValidDirectionChange', () => {
+    it('should return true for valid direction change', () => {
+      const game = createGame();
+      expect(isValidDirectionChange(game, 'UP')).toBe(true);
+      expect(isValidDirectionChange(game, 'DOWN')).toBe(true);
+    });
+
+    it('should return false for same direction', () => {
+      const game = createGame();
+      expect(isValidDirectionChange(game, 'RIGHT')).toBe(false);
+    });
+
+    it('should return false for opposite direction with multi-segment snake', () => {
+      const game = createGame();
+      game.snake.push({ x: 9, y: 10 });
+      expect(isValidDirectionChange(game, 'LEFT')).toBe(false);
+    });
+  });
 
 describe('HTTP API Integration', () => {
   // These tests would run against the actual API

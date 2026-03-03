@@ -3,7 +3,7 @@ import type { Direction, GameState, Position, LeaderboardEntry } from './types';
 
 const BOARD_WIDTH = 20;
 const BOARD_HEIGHT = 20;
-const MOVE_COST = 0.001; // USDC per move
+const DIRECTION_CHANGE_COST = 0.001; // USDC per direction change
 
 // In-memory storage
 const games: Map<string, GameState> = new Map();
@@ -34,6 +34,7 @@ export function createGame(): GameState {
     direction: 'RIGHT',
     score: 0,
     moveCount: 0,
+    directionChanges: 0,
     totalSpent: '0.000000',
     gameOver: false,
     createdAt: Date.now(),
@@ -58,24 +59,64 @@ export function isOppositeDirection(current: Direction, next: Direction): boolea
   return opposites[current] === next;
 }
 
-export function moveSnake(gameId: string, direction: Direction): GameState | null {
+/**
+ * Check if a direction change is valid and needed
+ * Returns true if direction is different and not opposite
+ */
+export function isValidDirectionChange(game: GameState, newDirection: Direction): boolean {
+  // Same direction = no change needed
+  if (game.direction === newDirection) {
+    return false;
+  }
+  
+  // Can't do 180-degree turn if snake has multiple segments
+  if (game.snake.length > 1 && isOppositeDirection(game.direction, newDirection)) {
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Change direction (PAID) - only changes direction, doesn't move
+ */
+export function changeDirection(gameId: string, newDirection: Direction): { game: GameState | null; changed: boolean } {
   const game = games.get(gameId);
   if (!game || game.gameOver) {
-    return null;
+    return { game: null, changed: false };
   }
   
-  // Prevent 180-degree turns (only if snake has more than 1 segment)
-  if (game.snake.length > 1 && isOppositeDirection(game.direction, direction)) {
-    direction = game.direction; // Keep current direction
+  // Check if this is a valid direction change
+  if (!isValidDirectionChange(game, newDirection)) {
+    return { game, changed: false };
   }
   
-  game.direction = direction;
+  // Change direction
+  game.direction = newDirection;
+  game.directionChanges++;
   
-  // Calculate new head position
+  // Update spending for direction change
+  const spent = parseFloat(game.totalSpent) + DIRECTION_CHANGE_COST;
+  game.totalSpent = spent.toFixed(6);
+  game.updatedAt = Date.now();
+  
+  return { game, changed: true };
+}
+
+/**
+ * Tick/move snake forward (FREE) - moves in current direction
+ */
+export function tickGame(gameId: string): GameState | null {
+  const game = games.get(gameId);
+  if (!game || game.gameOver) {
+    return game || null;
+  }
+  
+  // Calculate new head position based on current direction
   const head = game.snake[0];
   let newHead: Position;
   
-  switch (direction) {
+  switch (game.direction) {
     case 'UP':
       newHead = { x: head.x, y: head.y - 1 };
       break;
@@ -125,13 +166,29 @@ export function moveSnake(gameId: string, direction: Direction): GameState | nul
     game.snake.pop();
   }
   
-  // Update move count and spending
   game.moveCount++;
-  const spent = parseFloat(game.totalSpent) + MOVE_COST;
-  game.totalSpent = spent.toFixed(6);
   game.updatedAt = Date.now();
   
   return game;
+}
+
+// Legacy function for backward compatibility
+export function moveSnake(gameId: string, direction: Direction): GameState | null {
+  const game = games.get(gameId);
+  if (!game || game.gameOver) {
+    return null;
+  }
+  
+  // Change direction if different
+  if (isValidDirectionChange(game, direction)) {
+    game.direction = direction;
+    game.directionChanges++;
+    const spent = parseFloat(game.totalSpent) + DIRECTION_CHANGE_COST;
+    game.totalSpent = spent.toFixed(6);
+  }
+  
+  // Then tick
+  return tickGame(gameId);
 }
 
 function addToLeaderboard(game: GameState): void {
@@ -161,8 +218,10 @@ export function formatGameResponse(game: GameState) {
     board: game.board,
     snake: game.snake,
     food: game.food,
+    direction: game.direction,
     score: game.score,
     moveCount: game.moveCount,
+    directionChanges: game.directionChanges,
     totalSpent: game.totalSpent,
     gameOver: game.gameOver,
   };

@@ -1,16 +1,17 @@
 import { config } from 'dotenv';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { serve } from '@hono/node-server';
-import { paymentMiddleware, x402ResourceServer } from '@x402/hono';
-import { ExactEvmScheme } from '@x402/evm';
+import { paymentMiddlewareFromConfig } from '@x402/hono';
 import { HTTPFacilitatorClient } from '@x402/core/server';
+import { ExactEvmScheme } from '@x402/evm/exact/server';
 import {
   createGame,
   getGame,
-  moveSnake,
+  tickGame,
+  changeDirection,
   getLeaderboard,
   formatGameResponse,
+  isValidDirectionChange,
 } from './game';
 import { DirectionSchema } from './types';
 
@@ -32,8 +33,8 @@ const app = new Hono();
 app.use('/*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Payment-Response', 'X-PAYMENT'],
-  exposeHeaders: ['X-Payment-Response', 'WWW-Authenticate'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Payment-Response', 'X-PAYMENT', 'PAYMENT-SIGNATURE'],
+  exposeHeaders: ['X-Payment-Response', 'WWW-Authenticate', 'PAYMENT-REQUIRED', 'PAYMENT-RESPONSE'],
 }));
 
 // Health check
@@ -41,13 +42,13 @@ app.get('/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Create new game (free)
+// Create new game (FREE)
 app.post('/v1/game/new', (c) => {
   const game = createGame();
   return c.json(formatGameResponse(game));
 });
 
-// Get game state (free)
+// Get game state (FREE)
 app.get('/v1/game/:id', (c) => {
   const gameId = c.req.param('id');
   const game = getGame(gameId);
@@ -59,23 +60,64 @@ app.get('/v1/game/:id', (c) => {
   return c.json(formatGameResponse(game));
 });
 
-// Get leaderboard (free)
+// Tick/auto-move (FREE) - moves snake in current direction
+app.post('/v1/game/tick', (c) => {
+  const gameId = c.req.query('gameId');
+  
+  if (!gameId) {
+    return c.json({ error: 'gameId query parameter required' }, 400);
+  }
+  
+  const game = tickGame(gameId);
+  
+  if (!game) {
+    return c.json({ error: 'Game not found' }, 404);
+  }
+  
+  return c.json(formatGameResponse(game));
+});
+
+// Check if direction change is needed (FREE) - for client to know if payment is required
+app.get('/v1/game/check-turn', (c) => {
+  const gameId = c.req.query('gameId');
+  const direction = c.req.query('direction');
+  
+  if (!gameId || !direction) {
+    return c.json({ error: 'gameId and direction query parameters required' }, 400);
+  }
+  
+  const result = DirectionSchema.safeParse(direction);
+  if (!result.success) {
+    return c.json({ error: 'Invalid direction' }, 400);
+  }
+  
+  const game = getGame(gameId);
+  if (!game) {
+    return c.json({ error: 'Game not found' }, 404);
+  }
+  
+  const needsPayment = isValidDirectionChange(game, result.data);
+  
+  return c.json({
+    currentDirection: game.direction,
+    requestedDirection: result.data,
+    needsPayment,
+    reason: needsPayment ? 'Direction change requires payment' : 'Same direction or invalid turn',
+  });
+});
+
+// Get leaderboard (FREE)
 app.get('/v1/leaderboard', (c) => {
   const limit = parseInt(c.req.query('limit') || '10');
   const entries = getLeaderboard(Math.min(limit, 100));
   return c.json({ leaderboard: entries });
 });
 
-// Payment-protected move endpoint
-const moveApp = new Hono();
-
-// Setup x402 payment middleware for move endpoint
+// Setup x402 payment middleware for turn endpoint
 const facilitatorClient = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
-const resourceServer = new x402ResourceServer(facilitatorClient)
-  .register(NETWORK, new ExactEvmScheme());
 
-const moveRoutes = {
-  'POST /': {
+const turnRoutes = {
+  'POST /v1/game/turn': {
     accepts: [
       {
         scheme: 'exact',
@@ -84,14 +126,20 @@ const moveRoutes = {
         payTo: PAYMENT_ADDRESS,
       },
     ],
-    description: 'Make a move in Snake game',
+    description: 'Change direction in Snake game (costs $0.001 USDC)',
     mimeType: 'application/json',
   },
 };
 
-moveApp.use(paymentMiddleware(moveRoutes, resourceServer));
+const evmScheme = new ExactEvmScheme();
+app.use(paymentMiddlewareFromConfig(
+  turnRoutes, 
+  facilitatorClient,
+  [{ network: NETWORK, server: evmScheme }]
+));
 
-moveApp.post('/', async (c) => {
+// Turn/change direction (PAID) - only changes direction
+app.post('/v1/game/turn', async (c) => {
   const gameId = c.req.query('gameId');
   
   if (!gameId) {
@@ -105,7 +153,7 @@ moveApp.post('/', async (c) => {
     return c.json({ error: 'Invalid direction. Must be UP, DOWN, LEFT, or RIGHT' }, 400);
   }
   
-  const game = moveSnake(gameId, result.data);
+  const { game, changed } = changeDirection(gameId, result.data);
   
   if (!game) {
     return c.json({ error: 'Game not found or already over' }, 404);
@@ -113,21 +161,9 @@ moveApp.post('/', async (c) => {
   
   return c.json({
     ...formatGameResponse(game),
+    directionChanged: changed,
     paymentVerified: true,
   });
-});
-
-// Mount move endpoint
-app.route('/v1/game/move', moveApp);
-
-// Handle /v1/game/:id/move - redirect to payment endpoint
-app.post('/v1/game/:id/move', async (c) => {
-  const gameId = c.req.param('id');
-  return c.json({
-    error: 'Use POST /v1/game/move?gameId=' + gameId + ' with x402 payment',
-    hint: 'This endpoint requires x402 payment of $0.001 USDC',
-    paymentEndpoint: '/v1/game/move?gameId=' + gameId,
-  }, 402);
 });
 
 // Serve static frontend

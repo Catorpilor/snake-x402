@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Snake x402 - Pay per Move</title>
+    <title>Snake x402 - Pay to Turn</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.9.0/dist/ethers.umd.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -30,6 +31,16 @@
             color: #888;
             margin-bottom: 1rem;
             font-size: 0.9rem;
+            text-align: center;
+        }
+        
+        .header-row {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+            justify-content: center;
         }
         
         .game-container {
@@ -47,7 +58,7 @@
         
         .stats {
             display: flex;
-            gap: 2rem;
+            gap: 1.5rem;
             margin-bottom: 1rem;
             flex-wrap: wrap;
             justify-content: center;
@@ -128,11 +139,22 @@
             transform: scale(0.95);
         }
         
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
         .arrow-btn {
             width: 50px;
             height: 50px;
             font-size: 1.5rem;
             padding: 0;
+        }
+        
+        .arrow-btn.active {
+            background: linear-gradient(90deg, #00ff88, #00d4ff);
+            color: #000;
+            border-color: transparent;
         }
         
         .new-game-btn {
@@ -143,12 +165,29 @@
             margin-top: 1rem;
         }
         
+        .connect-btn {
+            background: linear-gradient(90deg, #ff6b35, #f7931a);
+            color: #000;
+            border: none;
+            font-weight: bold;
+            padding: 0.5rem 1rem;
+            font-size: 0.9rem;
+        }
+        
+        .wallet-btn {
+            background: rgba(0,255,136,0.2);
+            border: 1px solid #00ff88;
+            color: #00ff88;
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+        }
+        
         .side-panel {
             background: rgba(255,255,255,0.05);
             border: 1px solid rgba(255,255,255,0.1);
             border-radius: 12px;
             padding: 1.5rem;
-            min-width: 250px;
+            min-width: 280px;
         }
         
         .side-panel h2 {
@@ -221,7 +260,7 @@
             text-align: center;
             color: #666;
             font-size: 0.8rem;
-            max-width: 400px;
+            max-width: 500px;
         }
         
         .wallet-status {
@@ -229,6 +268,7 @@
             padding: 0.5rem 1rem;
             border-radius: 8px;
             font-size: 0.85rem;
+            text-align: center;
         }
         
         .wallet-connected {
@@ -241,6 +281,47 @@
             background: rgba(255,68,68,0.1);
             border: 1px solid rgba(255,68,68,0.3);
             color: #ff4444;
+        }
+        
+        .network-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(0,212,255,0.1);
+            border: 1px solid rgba(0,212,255,0.3);
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            color: #00d4ff;
+        }
+        
+        .network-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00d4ff;
+        }
+        
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        
+        .speed-control label {
+            font-size: 0.8rem;
+            color: #888;
+        }
+        
+        .speed-control input {
+            width: 100px;
+        }
+        
+        .direction-indicator {
+            font-size: 0.9rem;
+            color: #00d4ff;
+            margin-bottom: 0.5rem;
         }
         
         @media (max-width: 768px) {
@@ -257,9 +338,17 @@
 </head>
 <body>
     <h1>🐍 Snake x402</h1>
-    <p class="subtitle">Every move costs $0.001 USDC • Powered by x402</p>
+    <p class="subtitle">Snake moves automatically • Pay $0.001 USDC to change direction</p>
     
-    <div class="payment-flash" id="paymentFlash">Payment verified ✓</div>
+    <div class="header-row">
+        <button class="connect-btn" id="connectBtn" onclick="connectWallet()">🔗 Connect Wallet</button>
+        <span class="network-badge" id="networkBadge" style="display: none;">
+            <span class="network-dot"></span>
+            <span id="networkName">Base</span>
+        </span>
+    </div>
+    
+    <div class="payment-flash" id="paymentFlash">Direction changed! 💰</div>
     
     <div class="game-container">
         <div class="game-panel">
@@ -269,8 +358,8 @@
                     <div class="stat-label">Score</div>
                 </div>
                 <div class="stat">
-                    <div class="stat-value" id="moves">0</div>
-                    <div class="stat-label">Moves</div>
+                    <div class="stat-value" id="turns">0</div>
+                    <div class="stat-label">Turns</div>
                 </div>
                 <div class="stat">
                     <div class="stat-value" id="spent">$0.00</div>
@@ -278,23 +367,31 @@
                 </div>
             </div>
             
+            <div class="direction-indicator">Direction: <span id="currentDirection">→</span></div>
+            
             <canvas id="gameCanvas" width="400" height="400"></canvas>
             
             <div class="controls">
                 <div class="controls-row">
-                    <button class="arrow-btn" onclick="move('UP')">↑</button>
+                    <button class="arrow-btn" onclick="turn('UP')" id="btnUp">↑</button>
                 </div>
                 <div class="controls-row">
-                    <button class="arrow-btn" onclick="move('LEFT')">←</button>
-                    <button class="arrow-btn" onclick="move('DOWN')">↓</button>
-                    <button class="arrow-btn" onclick="move('RIGHT')">→</button>
+                    <button class="arrow-btn" onclick="turn('LEFT')" id="btnLeft">←</button>
+                    <button class="arrow-btn" onclick="turn('DOWN')" id="btnDown">↓</button>
+                    <button class="arrow-btn" onclick="turn('RIGHT')" id="btnRight">→</button>
                 </div>
+            </div>
+            
+            <div class="speed-control">
+                <label>Speed:</label>
+                <input type="range" id="speedSlider" min="50" max="500" value="200" oninput="updateSpeed(this.value)">
+                <span id="speedValue">200ms</span>
             </div>
             
             <button class="new-game-btn" onclick="startNewGame()">New Game</button>
             
-            <div class="wallet-status wallet-disconnected" id="walletStatus">
-                ⚠️ x402 wallet required for moves
+            <div class="wallet-status" id="walletStatus">
+                <span class="wallet-disconnected">⚠️ Connect wallet to change direction</span>
             </div>
         </div>
         
@@ -303,6 +400,13 @@
             <ul class="leaderboard" id="leaderboard">
                 <li><span class="rank">-</span> No games yet</li>
             </ul>
+            
+            <h2 style="margin-top: 1.5rem;">ℹ️ How it works</h2>
+            <p style="font-size: 0.8rem; color: #888; line-height: 1.4;">
+                The snake moves automatically in its current direction. 
+                <strong>Changing direction costs $0.001 USDC</strong> via x402 micropayments.
+                Play smart — fewer turns = less spent!
+            </p>
         </div>
     </div>
     
@@ -310,32 +414,48 @@
         <h2>GAME OVER</h2>
         <div class="game-over-stats">
             <p>Score: <span id="finalScore">0</span></p>
-            <p>Moves: <span id="finalMoves">0</span></p>
+            <p>Turns: <span id="finalTurns">0</span></p>
             <p>Total Spent: <span id="finalSpent">$0.00</span></p>
         </div>
         <button class="new-game-btn" onclick="startNewGame()">Play Again</button>
     </div>
     
     <div class="info">
-        <p>Use arrow keys or buttons to move. Each move is paid via x402 micropayments.</p>
-        <p>Eat food (🍎) to grow and score points!</p>
+        <p>Use arrow keys to turn. The snake moves automatically!</p>
+        <p style="margin-top: 0.5rem;">Built with <a href="https://www.x402.org" target="_blank" style="color: #00d4ff;">x402</a> — the HTTP 402 payment protocol</p>
     </div>
 
     <script>
-        const API_URL = window.API_URL || '';
+        // Detect base path from current URL
+        const basePath = window.location.pathname.replace(/\/$/, '');
+        const API_URL = window.API_URL || basePath;
         const CELL_SIZE = 20;
         const BOARD_SIZE = 20;
+        const BASE_CHAIN_ID = 8453;
         
         let gameId = null;
         let gameState = null;
-        let isProcessing = false;
+        let gameLoopInterval = null;
+        let tickSpeed = 200;
+        let isProcessingTurn = false;
+        let pendingDirection = null;
+        let provider = null;
+        let signer = null;
+        let walletAddress = null;
         
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         
+        const directionArrows = {
+            UP: '↑',
+            DOWN: '↓',
+            LEFT: '←',
+            RIGHT: '→',
+        };
+        
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
-            startNewGame();
+            checkExistingConnection();
             loadLeaderboard();
         });
         
@@ -354,11 +474,134 @@
             
             if (keyMap[e.key]) {
                 e.preventDefault();
-                move(keyMap[e.key]);
+                turn(keyMap[e.key]);
             }
         });
         
+        // Check if already connected
+        async function checkExistingConnection() {
+            if (window.ethereum) {
+                try {
+                    const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                    if (accounts.length > 0) {
+                        await setupWallet();
+                    }
+                } catch (e) {
+                    console.log('No existing connection');
+                }
+            }
+        }
+        
+        async function connectWallet() {
+            if (!window.ethereum) {
+                alert('Please install MetaMask or another Web3 wallet!');
+                return;
+            }
+            
+            try {
+                await window.ethereum.request({ method: 'eth_requestAccounts' });
+                await setupWallet();
+            } catch (error) {
+                console.error('Failed to connect:', error);
+                alert('Failed to connect wallet: ' + error.message);
+            }
+        }
+        
+        async function setupWallet() {
+            provider = new ethers.BrowserProvider(window.ethereum);
+            signer = await provider.getSigner();
+            walletAddress = await signer.getAddress();
+            
+            const network = await provider.getNetwork();
+            const chainId = Number(network.chainId);
+            
+            updateWalletUI(chainId);
+            
+            window.ethereum.on('accountsChanged', handleAccountChange);
+            window.ethereum.on('chainChanged', () => window.location.reload());
+        }
+        
+        function handleAccountChange(accounts) {
+            if (accounts.length === 0) {
+                disconnectWallet();
+            } else {
+                setupWallet();
+            }
+        }
+        
+        function disconnectWallet() {
+            provider = null;
+            signer = null;
+            walletAddress = null;
+            updateWalletUI(null);
+        }
+        
+        function updateWalletUI(chainId) {
+            const connectBtn = document.getElementById('connectBtn');
+            const walletStatus = document.getElementById('walletStatus');
+            const networkBadge = document.getElementById('networkBadge');
+            const networkName = document.getElementById('networkName');
+            
+            if (walletAddress) {
+                const shortAddr = walletAddress.slice(0, 6) + '...' + walletAddress.slice(-4);
+                connectBtn.textContent = shortAddr;
+                connectBtn.classList.remove('connect-btn');
+                connectBtn.classList.add('wallet-btn');
+                connectBtn.onclick = disconnectWallet;
+                
+                networkBadge.style.display = 'inline-flex';
+                
+                if (chainId === BASE_CHAIN_ID) {
+                    walletStatus.innerHTML = '<span class="wallet-connected">✓ Ready to play on Base</span>';
+                    networkName.textContent = 'Base';
+                } else {
+                    walletStatus.innerHTML = '<span class="wallet-disconnected">⚠️ Switch to Base network</span>';
+                    networkName.textContent = 'Wrong Network';
+                    switchToBase();
+                }
+            } else {
+                connectBtn.textContent = '🔗 Connect Wallet';
+                connectBtn.classList.add('connect-btn');
+                connectBtn.classList.remove('wallet-btn');
+                connectBtn.onclick = connectWallet;
+                walletStatus.innerHTML = '<span class="wallet-disconnected">⚠️ Connect wallet to change direction</span>';
+                networkBadge.style.display = 'none';
+            }
+        }
+        
+        async function switchToBase() {
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: '0x2105' }],
+                });
+            } catch (switchError) {
+                if (switchError.code === 4902) {
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [{
+                                chainId: '0x2105',
+                                chainName: 'Base',
+                                nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+                                rpcUrls: ['https://mainnet.base.org'],
+                                blockExplorerUrls: ['https://basescan.org'],
+                            }],
+                        });
+                    } catch (addError) {
+                        console.error('Failed to add Base network:', addError);
+                    }
+                }
+            }
+        }
+        
         async function startNewGame() {
+            // Stop existing game loop
+            if (gameLoopInterval) {
+                clearInterval(gameLoopInterval);
+                gameLoopInterval = null;
+            }
+            
             try {
                 const response = await fetch(`${API_URL}/v1/game/new`, {
                     method: 'POST',
@@ -370,60 +613,204 @@
                 document.getElementById('gameOverOverlay').classList.remove('show');
                 updateDisplay();
                 render();
+                
+                // Start game loop
+                gameLoopInterval = setInterval(tick, tickSpeed);
             } catch (error) {
                 console.error('Failed to start game:', error);
-                alert('Failed to start game. Check console for details.');
             }
         }
         
-        async function move(direction) {
-            if (!gameId || isProcessing || gameState?.gameOver) return;
-            
-            isProcessing = true;
+        async function tick() {
+            if (!gameId || gameState?.gameOver) {
+                if (gameLoopInterval) {
+                    clearInterval(gameLoopInterval);
+                    gameLoopInterval = null;
+                }
+                return;
+            }
             
             try {
-                // In a real implementation, this would use x402 payment
-                // For demo, we'll call the API directly
-                const response = await fetch(`${API_URL}/v1/game/move?gameId=${gameId}`, {
+                const response = await fetch(`${API_URL}/v1/game/tick?gameId=${gameId}`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ direction }),
                 });
                 
-                if (response.status === 402) {
-                    // Payment required - show message
-                    const data = await response.json();
-                    console.log('Payment required:', data);
-                    showPaymentRequired();
-                    return;
-                }
-                
                 gameState = await response.json();
-                
-                if (gameState.paymentVerified) {
-                    showPaymentFlash();
-                }
-                
                 updateDisplay();
                 render();
                 
                 if (gameState.gameOver) {
+                    clearInterval(gameLoopInterval);
+                    gameLoopInterval = null;
                     showGameOver();
                     loadLeaderboard();
                 }
             } catch (error) {
-                console.error('Move failed:', error);
+                console.error('Tick failed:', error);
+            }
+        }
+        
+        async function turn(direction) {
+            if (!gameId || isProcessingTurn || gameState?.gameOver) return;
+            
+            // Check if direction is different from current
+            if (gameState?.direction === direction) {
+                return; // Same direction, no need to pay
+            }
+            
+            if (!signer) {
+                alert('Connect your wallet to change direction!');
+                return;
+            }
+            
+            isProcessingTurn = true;
+            highlightButton(direction);
+            
+            try {
+                // First attempt - will get 402 with payment requirements
+                const response = await fetch(`${API_URL}/v1/game/turn?gameId=${gameId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ direction }),
+                });
+                
+                if (response.status === 402) {
+                    // Get payment requirements
+                    const paymentHeader = response.headers.get('PAYMENT-REQUIRED');
+                    if (!paymentHeader) {
+                        throw new Error('Missing payment requirements');
+                    }
+                    
+                    const paymentReq = JSON.parse(atob(paymentHeader));
+                    console.log('Payment required:', paymentReq);
+                    
+                    // Sign the payment
+                    const signedPayment = await signPayment(paymentReq);
+                    
+                    // Retry with payment
+                    const paidResponse = await fetch(`${API_URL}/v1/game/turn?gameId=${gameId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'PAYMENT-SIGNATURE': signedPayment,
+                        },
+                        body: JSON.stringify({ direction }),
+                    });
+                    
+                    if (!paidResponse.ok) {
+                        const errData = await paidResponse.json().catch(() => ({}));
+                        throw new Error(errData.error || 'Payment failed');
+                    }
+                    
+                    gameState = await paidResponse.json();
+                    showPaymentFlash();
+                } else if (response.ok) {
+                    gameState = await response.json();
+                } else {
+                    throw new Error('Turn failed');
+                }
+                
+                updateDisplay();
+                render();
+            } catch (error) {
+                console.error('Turn failed:', error);
+                // Don't show alert for every error, just log it
             } finally {
-                isProcessing = false;
+                isProcessingTurn = false;
+                clearButtonHighlights();
+            }
+        }
+        
+        async function signPayment(paymentReq) {
+            const accepted = paymentReq.accepts[0];
+            
+            // Create EIP-712 typed data for x402 exact payment
+            const domain = {
+                name: 'x402',
+                version: '1',
+                chainId: BASE_CHAIN_ID,
+            };
+            
+            const types = {
+                TransferWithAuthorization: [
+                    { name: 'from', type: 'address' },
+                    { name: 'to', type: 'address' },
+                    { name: 'value', type: 'uint256' },
+                    { name: 'validAfter', type: 'uint256' },
+                    { name: 'validBefore', type: 'uint256' },
+                    { name: 'nonce', type: 'bytes32' },
+                ],
+            };
+            
+            const validAfter = 0;
+            const validBefore = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+            const nonce = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+                .map(b => b.toString(16).padStart(2, '0')).join('');
+            
+            const value = {
+                from: walletAddress,
+                to: accepted.payTo,
+                value: accepted.amount,
+                validAfter,
+                validBefore,
+                nonce,
+            };
+            
+            const signature = await signer.signTypedData(domain, types, value);
+            
+            // Create payment payload
+            const payload = {
+                x402Version: 2,
+                scheme: 'exact',
+                network: accepted.network,
+                accepted: accepted,
+                payload: {
+                    signature,
+                    from: walletAddress,
+                    to: accepted.payTo,
+                    value: accepted.amount,
+                    validAfter: validAfter.toString(),
+                    validBefore: validBefore.toString(),
+                    nonce,
+                },
+            };
+            
+            return btoa(JSON.stringify(payload));
+        }
+        
+        function highlightButton(direction) {
+            document.querySelectorAll('.arrow-btn').forEach(btn => btn.classList.remove('active'));
+            const btnMap = { UP: 'btnUp', DOWN: 'btnDown', LEFT: 'btnLeft', RIGHT: 'btnRight' };
+            document.getElementById(btnMap[direction])?.classList.add('active');
+        }
+        
+        function clearButtonHighlights() {
+            document.querySelectorAll('.arrow-btn').forEach(btn => btn.classList.remove('active'));
+            // Highlight current direction
+            if (gameState?.direction) {
+                highlightButton(gameState.direction);
+            }
+        }
+        
+        function updateSpeed(value) {
+            tickSpeed = parseInt(value);
+            document.getElementById('speedValue').textContent = `${value}ms`;
+            
+            // Restart game loop with new speed
+            if (gameLoopInterval) {
+                clearInterval(gameLoopInterval);
+                gameLoopInterval = setInterval(tick, tickSpeed);
             }
         }
         
         function updateDisplay() {
             document.getElementById('score').textContent = gameState.score;
-            document.getElementById('moves').textContent = gameState.moveCount;
-            document.getElementById('spent').textContent = `$${parseFloat(gameState.totalSpent).toFixed(2)}`;
+            document.getElementById('turns').textContent = gameState.directionChanges || 0;
+            document.getElementById('spent').textContent = `$${parseFloat(gameState.totalSpent).toFixed(3)}`;
+            document.getElementById('currentDirection').textContent = directionArrows[gameState.direction] || '→';
+            
+            // Highlight current direction button
+            clearButtonHighlights();
         }
         
         function render() {
@@ -460,24 +847,23 @@
             
             // Draw snake
             gameState.snake.forEach((segment, index) => {
-                const gradient = ctx.createLinearGradient(
-                    segment.x * CELL_SIZE,
-                    segment.y * CELL_SIZE,
-                    (segment.x + 1) * CELL_SIZE,
-                    (segment.y + 1) * CELL_SIZE
-                );
-                
                 if (index === 0) {
-                    // Head
+                    // Head with gradient
+                    const gradient = ctx.createLinearGradient(
+                        segment.x * CELL_SIZE,
+                        segment.y * CELL_SIZE,
+                        (segment.x + 1) * CELL_SIZE,
+                        (segment.y + 1) * CELL_SIZE
+                    );
                     gradient.addColorStop(0, '#00ff88');
                     gradient.addColorStop(1, '#00d4ff');
+                    ctx.fillStyle = gradient;
                 } else {
-                    // Body
+                    // Body with fading
                     const alpha = 1 - (index / gameState.snake.length) * 0.5;
                     ctx.fillStyle = `rgba(0, 255, 136, ${alpha})`;
                 }
                 
-                ctx.fillStyle = index === 0 ? gradient : ctx.fillStyle;
                 ctx.fillRect(
                     segment.x * CELL_SIZE + 1,
                     segment.y * CELL_SIZE + 1,
@@ -490,17 +876,13 @@
         function showPaymentFlash() {
             const flash = document.getElementById('paymentFlash');
             flash.classList.add('show');
-            setTimeout(() => flash.classList.remove('show'), 1500);
-        }
-        
-        function showPaymentRequired() {
-            alert('x402 payment required! Connect a wallet to play.');
+            setTimeout(() => flash.classList.remove('show'), 1000);
         }
         
         function showGameOver() {
             document.getElementById('finalScore').textContent = gameState.score;
-            document.getElementById('finalMoves').textContent = gameState.moveCount;
-            document.getElementById('finalSpent').textContent = `$${parseFloat(gameState.totalSpent).toFixed(2)}`;
+            document.getElementById('finalTurns').textContent = gameState.directionChanges || 0;
+            document.getElementById('finalSpent').textContent = `$${parseFloat(gameState.totalSpent).toFixed(3)}`;
             document.getElementById('gameOverOverlay').classList.add('show');
         }
         
