@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  snake-x402:
+    build: .
+    container_name: snake-x402
+    ports:
+      - "3402:3000"
+    environment:
+      - PORT=3000
+      - PAYMENT_ADDRESS=${PAYMENT_ADDRESS}
+      - FACILITATOR_URL=${FACILITATOR_URL:-https://facilitator.daydreams.systems}
+      - NETWORK=${NETWORK:-eip155:8453}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s

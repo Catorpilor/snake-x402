@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snake x402 - Pay per Move</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 100%);
+            min-height: 100vh;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 1rem;
+        }
+        
+        h1 {
+            font-size: 2rem;
+            margin: 1rem 0;
+            background: linear-gradient(90deg, #00ff88, #00d4ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .subtitle {
+            color: #888;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        
+        .game-container {
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .game-panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #00ff88;
+        }
+        
+        .stat-label {
+            font-size: 0.75rem;
+            color: #888;
+            text-transform: uppercase;
+        }
+        
+        #gameCanvas {
+            border: 2px solid #333;
+            border-radius: 8px;
+            background: #111;
+        }
+        
+        .payment-flash {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(90deg, #00ff88, #00d4ff);
+            color: #000;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: bold;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.3s ease;
+            z-index: 100;
+        }
+        
+        .payment-flash.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .controls {
+            margin-top: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        
+        .controls-row {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        
+        button {
+            background: #222;
+            border: 1px solid #444;
+            color: #fff;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+        
+        button:hover {
+            background: #333;
+            border-color: #00ff88;
+        }
+        
+        button:active {
+            transform: scale(0.95);
+        }
+        
+        .arrow-btn {
+            width: 50px;
+            height: 50px;
+            font-size: 1.5rem;
+            padding: 0;
+        }
+        
+        .new-game-btn {
+            background: linear-gradient(90deg, #00ff88, #00d4ff);
+            color: #000;
+            border: none;
+            font-weight: bold;
+            margin-top: 1rem;
+        }
+        
+        .side-panel {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            min-width: 250px;
+        }
+        
+        .side-panel h2 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            color: #00d4ff;
+        }
+        
+        .leaderboard {
+            list-style: none;
+        }
+        
+        .leaderboard li {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            font-size: 0.85rem;
+        }
+        
+        .leaderboard li:last-child {
+            border-bottom: none;
+        }
+        
+        .rank {
+            color: #888;
+            margin-right: 0.5rem;
+        }
+        
+        .game-over-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        
+        .game-over-overlay.show {
+            opacity: 1;
+            pointer-events: all;
+        }
+        
+        .game-over-overlay h2 {
+            font-size: 3rem;
+            color: #ff4444;
+            margin-bottom: 1rem;
+        }
+        
+        .game-over-stats {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        .game-over-stats p {
+            font-size: 1.2rem;
+            margin: 0.5rem 0;
+        }
+        
+        .info {
+            margin-top: 2rem;
+            text-align: center;
+            color: #666;
+            font-size: 0.8rem;
+            max-width: 400px;
+        }
+        
+        .wallet-status {
+            margin-top: 1rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+        
+        .wallet-connected {
+            background: rgba(0,255,136,0.1);
+            border: 1px solid rgba(0,255,136,0.3);
+            color: #00ff88;
+        }
+        
+        .wallet-disconnected {
+            background: rgba(255,68,68,0.1);
+            border: 1px solid rgba(255,68,68,0.3);
+            color: #ff4444;
+        }
+        
+        @media (max-width: 768px) {
+            .game-container {
+                flex-direction: column;
+            }
+            
+            #gameCanvas {
+                width: 300px;
+                height: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>🐍 Snake x402</h1>
+    <p class="subtitle">Every move costs $0.001 USDC • Powered by x402</p>
+    
+    <div class="payment-flash" id="paymentFlash">Payment verified ✓</div>
+    
+    <div class="game-container">
+        <div class="game-panel">
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value" id="score">0</div>
+                    <div class="stat-label">Score</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="moves">0</div>
+                    <div class="stat-label">Moves</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="spent">$0.00</div>
+                    <div class="stat-label">Spent</div>
+                </div>
+            </div>
+            
+            <canvas id="gameCanvas" width="400" height="400"></canvas>
+            
+            <div class="controls">
+                <div class="controls-row">
+                    <button class="arrow-btn" onclick="move('UP')">↑</button>
+                </div>
+                <div class="controls-row">
+                    <button class="arrow-btn" onclick="move('LEFT')">←</button>
+                    <button class="arrow-btn" onclick="move('DOWN')">↓</button>
+                    <button class="arrow-btn" onclick="move('RIGHT')">→</button>
+                </div>
+            </div>
+            
+            <button class="new-game-btn" onclick="startNewGame()">New Game</button>
+            
+            <div class="wallet-status wallet-disconnected" id="walletStatus">
+                ⚠️ x402 wallet required for moves
+            </div>
+        </div>
+        
+        <div class="side-panel">
+            <h2>🏆 Leaderboard</h2>
+            <ul class="leaderboard" id="leaderboard">
+                <li><span class="rank">-</span> No games yet</li>
+            </ul>
+        </div>
+    </div>
+    
+    <div class="game-over-overlay" id="gameOverOverlay">
+        <h2>GAME OVER</h2>
+        <div class="game-over-stats">
+            <p>Score: <span id="finalScore">0</span></p>
+            <p>Moves: <span id="finalMoves">0</span></p>
+            <p>Total Spent: <span id="finalSpent">$0.00</span></p>
+        </div>
+        <button class="new-game-btn" onclick="startNewGame()">Play Again</button>
+    </div>
+    
+    <div class="info">
+        <p>Use arrow keys or buttons to move. Each move is paid via x402 micropayments.</p>
+        <p>Eat food (🍎) to grow and score points!</p>
+    </div>
+
+    <script>
+        const API_URL = window.API_URL || '';
+        const CELL_SIZE = 20;
+        const BOARD_SIZE = 20;
+        
+        let gameId = null;
+        let gameState = null;
+        let isProcessing = false;
+        
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            startNewGame();
+            loadLeaderboard();
+        });
+        
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            const keyMap = {
+                'ArrowUp': 'UP',
+                'ArrowDown': 'DOWN',
+                'ArrowLeft': 'LEFT',
+                'ArrowRight': 'RIGHT',
+                'w': 'UP',
+                's': 'DOWN',
+                'a': 'LEFT',
+                'd': 'RIGHT',
+            };
+            
+            if (keyMap[e.key]) {
+                e.preventDefault();
+                move(keyMap[e.key]);
+            }
+        });
+        
+        async function startNewGame() {
+            try {
+                const response = await fetch(`${API_URL}/v1/game/new`, {
+                    method: 'POST',
+                });
+                
+                gameState = await response.json();
+                gameId = gameState.gameId;
+                
+                document.getElementById('gameOverOverlay').classList.remove('show');
+                updateDisplay();
+                render();
+            } catch (error) {
+                console.error('Failed to start game:', error);
+                alert('Failed to start game. Check console for details.');
+            }
+        }
+        
+        async function move(direction) {
+            if (!gameId || isProcessing || gameState?.gameOver) return;
+            
+            isProcessing = true;
+            
+            try {
+                // In a real implementation, this would use x402 payment
+                // For demo, we'll call the API directly
+                const response = await fetch(`${API_URL}/v1/game/move?gameId=${gameId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ direction }),
+                });
+                
+                if (response.status === 402) {
+                    // Payment required - show message
+                    const data = await response.json();
+                    console.log('Payment required:', data);
+                    showPaymentRequired();
+                    return;
+                }
+                
+                gameState = await response.json();
+                
+                if (gameState.paymentVerified) {
+                    showPaymentFlash();
+                }
+                
+                updateDisplay();
+                render();
+                
+                if (gameState.gameOver) {
+                    showGameOver();
+                    loadLeaderboard();
+                }
+            } catch (error) {
+                console.error('Move failed:', error);
+            } finally {
+                isProcessing = false;
+            }
+        }
+        
+        function updateDisplay() {
+            document.getElementById('score').textContent = gameState.score;
+            document.getElementById('moves').textContent = gameState.moveCount;
+            document.getElementById('spent').textContent = `$${parseFloat(gameState.totalSpent).toFixed(2)}`;
+        }
+        
+        function render() {
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw grid
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 0.5;
+            for (let i = 0; i <= BOARD_SIZE; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * CELL_SIZE, 0);
+                ctx.lineTo(i * CELL_SIZE, canvas.height);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, i * CELL_SIZE);
+                ctx.lineTo(canvas.width, i * CELL_SIZE);
+                ctx.stroke();
+            }
+            
+            if (!gameState) return;
+            
+            // Draw food
+            ctx.fillStyle = '#ff4444';
+            ctx.beginPath();
+            ctx.arc(
+                gameState.food.x * CELL_SIZE + CELL_SIZE / 2,
+                gameState.food.y * CELL_SIZE + CELL_SIZE / 2,
+                CELL_SIZE / 2 - 2,
+                0,
+                Math.PI * 2
+            );
+            ctx.fill();
+            
+            // Draw snake
+            gameState.snake.forEach((segment, index) => {
+                const gradient = ctx.createLinearGradient(
+                    segment.x * CELL_SIZE,
+                    segment.y * CELL_SIZE,
+                    (segment.x + 1) * CELL_SIZE,
+                    (segment.y + 1) * CELL_SIZE
+                );
+                
+                if (index === 0) {
+                    // Head
+                    gradient.addColorStop(0, '#00ff88');
+                    gradient.addColorStop(1, '#00d4ff');
+                } else {
+                    // Body
+                    const alpha = 1 - (index / gameState.snake.length) * 0.5;
+                    ctx.fillStyle = `rgba(0, 255, 136, ${alpha})`;
+                }
+                
+                ctx.fillStyle = index === 0 ? gradient : ctx.fillStyle;
+                ctx.fillRect(
+                    segment.x * CELL_SIZE + 1,
+                    segment.y * CELL_SIZE + 1,
+                    CELL_SIZE - 2,
+                    CELL_SIZE - 2
+                );
+            });
+        }
+        
+        function showPaymentFlash() {
+            const flash = document.getElementById('paymentFlash');
+            flash.classList.add('show');
+            setTimeout(() => flash.classList.remove('show'), 1500);
+        }
+        
+        function showPaymentRequired() {
+            alert('x402 payment required! Connect a wallet to play.');
+        }
+        
+        function showGameOver() {
+            document.getElementById('finalScore').textContent = gameState.score;
+            document.getElementById('finalMoves').textContent = gameState.moveCount;
+            document.getElementById('finalSpent').textContent = `$${parseFloat(gameState.totalSpent).toFixed(2)}`;
+            document.getElementById('gameOverOverlay').classList.add('show');
+        }
+        
+        async function loadLeaderboard() {
+            try {
+                const response = await fetch(`${API_URL}/v1/leaderboard`);
+                const data = await response.json();
+                
+                const list = document.getElementById('leaderboard');
+                
+                if (data.leaderboard.length === 0) {
+                    list.innerHTML = '<li><span class="rank">-</span> No games yet</li>';
+                    return;
+                }
+                
+                list.innerHTML = data.leaderboard.slice(0, 10).map((entry, index) => `
+                    <li>
+                        <span><span class="rank">#${index + 1}</span> ${entry.score} pts</span>
+                        <span>$${parseFloat(entry.totalSpent).toFixed(3)}</span>
+                    </li>
+                `).join('');
+            } catch (error) {
+                console.error('Failed to load leaderboard:', error);
+            }
+        }
+    </script>
+</body>
+</html>
