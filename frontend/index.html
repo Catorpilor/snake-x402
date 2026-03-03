@@ -787,7 +787,8 @@
                 render();
             } catch (error) {
                 console.error('Turn failed:', error);
-                // Don't show alert for every error, just log it
+                // Show user-friendly error feedback
+                showTurnError(error.message || 'Turn failed - direction not changed');
             } finally {
                 isProcessingTurn = false;
                 setPaused(false);
@@ -949,8 +950,18 @@
         
         function showPaymentFlash() {
             const flash = document.getElementById('paymentFlash');
+            flash.textContent = 'Direction changed! 💰';
+            flash.style.background = 'linear-gradient(90deg, #00ff88, #00d4ff)';
             flash.classList.add('show');
             setTimeout(() => flash.classList.remove('show'), 1000);
+        }
+        
+        function showTurnError(message) {
+            const flash = document.getElementById('paymentFlash');
+            flash.textContent = '❌ ' + message;
+            flash.style.background = 'linear-gradient(90deg, #ff4444, #ff6b6b)';
+            flash.classList.add('show');
+            setTimeout(() => flash.classList.remove('show'), 2000);
         }
         
         function showGameOver() {
